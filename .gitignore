@@ -1,0 +1,10 @@
+G*
+*.swp
+CMakeFiles/
+Makefile
+CMakeCache.txt
+*.cmake
+*.csv
+*.txt
+*.sh
+geolocation
