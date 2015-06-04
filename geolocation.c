@@ -1,92 +1,10 @@
-#define _XOPEN_SOURCE
-
 #include <unistd.h>  
 #include <stdlib.h>
-#include <stdio.h>  
-#include <stdint.h>
-#include <math.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <math.h>
 
-#include "radix_tree.h"
-
-#define MAX_CSV_LINE 2774714 
-#define MAX_TEXT_SIZE  200000000
-#define ALL_ONES (~(uint32_t)0)
-#define _BSD_SOURCE
-
-#define DEBUG
-const char * usage = 
-"Usage: %s [OPTION] \n"
-"Convert a country database from CSV to GeoIP binary format.\n"
-"\n"
-"-i CSV_FILE  add copyright or other info TEXT to output\n"
-"-I TEXT      add copyright or other info TEXT to output\n"
-"-o FILE      write the binary data to FILE, not stdout\n"
-"-h           display this help and exit\n";
-
-#define DPRINTF(format, ...) fprintf(stderr, "%s(%d): " format, __func__, __LINE__, ## __VA_ARGS__)
-#define D(format, ...) do { \
-	DPRINTF(format, ##__VA_ARGS__); \
-} while (0)
-
-typedef struct _ip_entry{
-	uint32_t min;
-	uint32_t max;
-	char min_addr[16];
-	char max_addr[16];
-	char country[64];
-	char province[64];
-	char city[64];
-	char village[64];
-	char isp[64];
-	uintptr_t offset;
-}_ip_entry;
-
-typedef struct ip_entry{
-#ifdef DEBUG
-	uint32_t min;
-	uint32_t max;
-#endif
-    uintptr_t country;
-    uintptr_t province;
-    uintptr_t city;
-    uintptr_t village;
-    uintptr_t isp;
-}ip_entry;
-
-
-typedef struct ips_t{
-	int e_len;
-	int t_len;
-	char  t[MAX_TEXT_SIZE];
-	ip_entry e[MAX_CSV_LINE];
-	radix_tree_t *tree;
-}ips_t;
-
-
-int count_righthand_zero_bit(uint32_t number, int bits){
-	int i;
-	if(number == 0){
-		return bits; 
-	}
-	for(i = 0; i < bits; i++){
-		if ((number >> i) % 2 )
-			return i;
-	}
-	return bits;
-}
-
-int get_prefix_length(uint32_t n1, uint32_t n2, int bits){
-	int i;
-	for(i = 0; i < bits; i++){
-		if (n1 >> i == n2 >> i )
-			return bits - i;
-	}
-	return 0;
-}
+#include "geolocation.h"
+#include "avl.h"
 
 char *u32toa(uint32_t u){
 	return inet_ntoa((*(struct in_addr*)&u));
@@ -104,7 +22,28 @@ char *__u32toa(uint32_t u){
 	return buff;
 }
 
-void insert(radix_tree_t *tree, uint32_t min, uint32_t max, int prefix, uintptr_t value){
+static int count_righthand_zero_bit(uint32_t number, int bits){
+	int i;
+	if(number == 0){
+		return bits; 
+	}
+	for(i = 0; i < bits; i++){
+		if ((number >> i) % 2 )
+			return i;
+	}
+	return bits;
+}
+
+static int get_prefix_length(uint32_t n1, uint32_t n2, int bits){
+	int i;
+	for(i = 0; i < bits; i++){
+		if (n1 >> i == n2 >> i )
+			return bits - i;
+	}
+	return 0;
+}
+
+static void insert(radix_tree_t *tree, uint32_t min, int prefix, uintptr_t value){
 	//radix tree store network byte order
 	int ret;
 	uint32_t mask = (uint32_t)(0xffffffffu <<(32 - prefix));
@@ -112,7 +51,7 @@ void insert(radix_tree_t *tree, uint32_t min, uint32_t max, int prefix, uintptr_
 	ret = radix32tree_insert(tree, addr, mask, value);
 }
 
-void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t leaf) {
+static void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t leaf) {
 	// add_min and add_max must be host byte order
 	uint32_t _min = min;
 	uint32_t current, addend;
@@ -128,7 +67,7 @@ void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t leaf) {
 				break;
 		}
 		prefix = get_prefix_length(min, current, 32);
-		insert(tree, _min, current, prefix, leaf);
+		insert(tree, _min, prefix, leaf);
 		if(current == ALL_ONES)
 			break;
 		min = current + 1;
@@ -136,23 +75,44 @@ void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t leaf) {
 	}
 }
 
+static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key){
+	char *p = key;
+	key_node_t *n;
 
-
-#ifdef DEBUG
-void dump_es(ips_t *ips){
-	int i;
-	if(ips){
-		for(i = 0; i < ips->e_len; i++){
-			D("[%d] range(%u, %u) ip(%s, %s) country[%s], province[%s], city[%s], village[%s], isp[%s]\n", 
-					i, ips->e[i].min, ips->e[i].max, u32toa(htonl(ips->e[i].min)), _u32toa(htonl(ips->e[i].max)), 
-					ips->t+ips->e[i].country, ips->t+ips->e[i].province, ips->t+ips->e[i].city, 
-					ips->t+ips->e[i].village, ips->t+ips->e[i].isp );
+	//trim key
+	if(*key == '"') 
+		key++;
+	if(*key == '"' || *key == '\0') 
+		return 0;
+	while(*++p)
+		;
+	if(*--p == '"')
+		*p = '\0';
+	if((n = avl_find_element(tree, key, n, node))){
+		return (uintptr_t)n->key;
+	}else{
+		n = calloc(1, sizeof(*n));
+		if(n == NULL){
+			return 0;
 		}
+
+		n->key = ips->t + ips->t_len;
+		n->node.key = ips->t + ips->t_len;
+		ips->t_len += sprintf(ips->t + ips->t_len, "%s", key);
+		ips->t_len++;
+
+		if(avl_insert(tree, &n->node)){
+			free(n);
+			return 0;
+		}
+
+		return (uintptr_t)n->key;
 	}
 }
-#else
-#define dump_es(a)
-#endif
+
+static int avl_strcmp(const void *k1, const void *k2, void *ptr){
+	return strcmp(k1, k2);
+}
 
 ips_t * open_ips(char *filename){
 	FILE *fp;
@@ -161,6 +121,8 @@ ips_t * open_ips(char *filename){
 	ips_t *ips;
 	_ip_entry _e;
 	ip_entry *e;
+	struct avl_tree keys;
+    struct key_node_t *node, *tmp;
 
 	if((fp = fopen(filename, "r")) == NULL){
 		D("fopen %s error\n", filename);
@@ -178,6 +140,9 @@ ips_t * open_ips(char *filename){
 	if((ips->tree =  radix_tree_create()) == NULL){
 		goto err_alloc_ips;
 	}
+
+	// init avl for key
+	avl_init(&keys, avl_strcmp, false, NULL);
 
 	for (; fgets(line, sizeof(line), fp);) {
 		if(ips->e_len == MAX_CSV_LINE){
@@ -198,29 +163,27 @@ ips_t * open_ips(char *filename){
 		e->min = _e.min;
 		e->max = _e.max;
 #endif
-
-#define _APPEND(a) do{ \
-		if(strlen(_e.a)>2){ \
-			e->a = ips->t_len; \
-			ips->t_len += sprintf(ips->t + ips->t_len, "%s", &_e.a[1]); \
-			ips->t[ips->t_len-1] = '\0'; \
-		}else{ \
-			e->a = 0; \
-		} \
-}while(0)
-		_APPEND(country);
-		_APPEND(province);
-		_APPEND(city);
-		_APPEND(village);
-		_APPEND(isp);
+		e->country  = get_key(ips, &keys, _e.country);
+		e->province = get_key(ips, &keys, _e.province);
+		e->city     = get_key(ips, &keys, _e.city);
+		e->village  = get_key(ips, &keys, _e.village);
+		e->isp      = get_key(ips, &keys, _e.isp);
 		set_range(ips->tree, _e.min, _e.max, (uintptr_t)e);
 	}
 
 out:
+	avl_for_each_element_safe(&keys, node, node, tmp) {
+	    avl_delete(&keys, &node->node);
+	    free(node);
+	}
 	fclose(fp);
 	return ips;
 
 err_alloc_tree:
+	avl_for_each_element_safe(&keys, node, node, tmp) {
+	    avl_delete(&keys, &node->node);
+	    free(node);
+	}
 	radix_tree_clean(ips->tree);
 err_alloc_ips:
 	free(ips);
@@ -240,49 +203,23 @@ void print_ip(ips_t *ips, char *ip){
 	int ret;
 	ret = inet_aton(ip, &add);
 	e = (ip_entry *)radix32tree_find(ips->tree, ntohl(add.s_addr));
-	D("ip[%s], country[%s], province[%s], city[%s], village[%s], isp[%s]\n", ip,
-					ips->t+e->country, ips->t+e->province, ips->t+e->city, 
-					ips->t+e->village, ips->t+e->isp );
+	printf("ip[%s], country[%s][%lu], province[%s], city[%s], village[%s], isp[%s]\n", ip,
+					(char *)e->country, e->country - (uintptr_t)ips->t, (char *)e->province, (char *)e->city, 
+					(char *)e->village, (char *)e->isp );
 }
 
-int main(int argc, char *argv[]){  
-	int opt;  
-	char *info = NULL;
-	char *output = NULL;
-	char *input = NULL;
-	ips_t *ips;
-	opterr = 0;  
-
-	while ((opt = getopt(argc, argv, "I:i:o:h"))!=-1)  {  
-		switch(opt)  {  
-			case 'i':  
-				input = optarg;
-				break;  
-			case 'I':  
-				info = optarg;
-				break;  
-			case 'o':  
-				output = optarg;
-				break;  
-			case 'h':  
-				fprintf(stderr, "%s", usage);  
-				exit(0);
-			default:  
-				fprintf(stderr, "%s", usage);  
-				exit(1);
-		}  
+void dump_ips(ips_t *ips){
+	if(ips){
+#ifdef DEBUG
+		int i;
+		for(i = 0; i < ips->e_len; i++){
+			D("[%d] range(%u, %u) ip(%s, %s) country[%s], province[%s], city[%s], village[%s], isp[%s]\n", 
+					i, ips->e[i].min, ips->e[i].max, u32toa(htonl(ips->e[i].min)), _u32toa(htonl(ips->e[i].max)), 
+					(char *)ips->e[i].country, (char *)ips->e[i].province, (char *)ips->e[i].city, 
+					(char *)ips->e[i].village, (char *)ips->e[i].isp );
+		}
+#endif
 	}
-	//if(!(input && output)){
-	if(!input){
-		fprintf(stderr, "%s", usage);  
-		exit(1);
-	}
+}
 
-	ips = open_ips(input);
-	if(ips == NULL){
-		exit(1);
-	}
-	print_ip(ips, "1.4.194.5");
-
-	clean_ips(ips);
-}  
+ 

@@ -7,4 +7,5 @@ CMakeCache.txt
 *.csv
 *.txt
 *.sh
-geolocation
+*.a
+main
