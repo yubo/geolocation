@@ -2,6 +2,8 @@ geolocation
 ===
 
 ## 
-  cmake .
-  make
-  ./geolocation -i ./ip_sample.txt
+```
+cmake .
+make
+./geolocation -i ./ip_sample.txt
+```
