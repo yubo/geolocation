@@ -15,7 +15,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-radix_tree_t * radix_tree_create() {
+radix_tree_t *radix_tree_create(void) {
     radix_tree_t  *tree;
 
     tree = calloc(1, sizeof(radix_tree_t));

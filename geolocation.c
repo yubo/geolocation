@@ -43,13 +43,13 @@ static int get_prefix_length(uint32_t n1, uint32_t n2, int bits){
 	return 0;
 }
 
-static void insert(radix_tree_t *tree, uint32_t min, int prefix, uintptr_t value){
+int radix_insert(radix_tree_t *tree, uint32_t min, int prefix, uintptr_t value){
 	//radix tree store network byte order
-	int ret;
 	uint32_t mask = (uint32_t)(0xffffffffu <<(32 - prefix));
 	uint32_t addr = min & mask;
-	ret = radix32tree_insert(tree, addr, mask, value);
+	return radix32tree_insert(tree, addr, mask, value);
 }
+
 
 static void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t leaf) {
 	// add_min and add_max must be host byte order
@@ -67,7 +67,7 @@ static void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t 
 				break;
 		}
 		prefix = get_prefix_length(min, current, 32);
-		insert(tree, _min, prefix, leaf);
+		radix_insert(tree, _min, prefix, leaf);
 		if(current == ALL_ONES)
 			break;
 		min = current + 1;
@@ -110,7 +110,8 @@ static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key){
 	}
 }
 
-static int avl_strcmp(const void *k1, const void *k2, void *ptr){
+static int avl_strcmp(const void *k1, const void *k2,
+		__attribute__((unused))void *ptr){
 	return strcmp(k1, k2);
 }
 
@@ -200,8 +201,7 @@ void clean_ips(ips_t *ips){
 void print_ip(ips_t *ips, char *ip){
 	ip_entry *e;
 	struct in_addr add;
-	int ret;
-	ret = inet_aton(ip, &add);
+	inet_aton(ip, &add);
 	e = (ip_entry *)radix32tree_find(ips->tree, ntohl(add.s_addr));
 	printf("ip[%s], country[%s][%lu], province[%s], city[%s], village[%s], isp[%s]\n", ip,
 					(char *)e->country, e->country - (uintptr_t)ips->t, (char *)e->province, (char *)e->city, 

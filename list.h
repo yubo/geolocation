@@ -28,7 +28,7 @@
  */
 #ifndef _LINUX_LIST_H_
 #define _LINUX_LIST_H_
-
+#pragma GCC diagnostic ignored "-Wcast-qual"
 #include <stddef.h>
 #include <stdbool.h>
 

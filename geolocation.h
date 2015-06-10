@@ -69,5 +69,6 @@ ips_t * open_ips(char *filename);
 void clean_ips(ips_t *ips);
 void print_ip(ips_t *ips, char *ip);
 void dump_ips(ips_t *ips);
+int radix_insert(radix_tree_t *tree, uint32_t min, int prefix, uintptr_t value);
 
 #endif
