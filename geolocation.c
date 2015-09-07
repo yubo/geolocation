@@ -5,6 +5,7 @@
 
 #include "geolocation.h"
 #include "avl.h"
+#include "alias.h"
 
 char *u32toa(uint32_t u){
 	return inet_ntoa((*(struct in_addr*)&u));
@@ -75,7 +76,7 @@ static void set_range(radix_tree_t *tree, uint32_t min, uint32_t max, uintptr_t 
 	}
 }
 
-static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key){
+static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key, uint32_t ali){
 	char *p = key;
 	key_node_t *n;
 
@@ -89,7 +90,7 @@ static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key){
 	if(*--p == '"')
 		*p = '\0';
 	if((n = avl_find_element(tree, key, n, node))){
-		return (uintptr_t)n->key;
+		return n->alias ? (uintptr_t)n->alias : (uintptr_t)n->key;
 	}else{
 		n = calloc(1, sizeof(*n));
 		if(n == NULL){
@@ -97,9 +98,14 @@ static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key){
 		}
 
 		n->key = ips->t + ips->t_len;
-		n->node.key = ips->t + ips->t_len;
-		ips->t_len += sprintf(ips->t + ips->t_len, "%s", key);
-		ips->t_len++;
+		n->node.key = n->key;
+		ips->t_len += sprintf(ips->t + ips->t_len, "%s", key) + 1;
+		if(ali){
+			n->alias = ips->t + ips->t_len;
+			ips->t_len += sprintf(ips->t + ips->t_len, "%d", ali) + 1;
+		}else{
+			n->alias = NULL;
+		}
 
 		if(avl_insert(tree, &n->node)){
 			free(n);
@@ -117,7 +123,7 @@ static int avl_strcmp(const void *k1, const void *k2,
 
 ips_t * open_ips(char *filename){
 	FILE *fp;
-	int num;
+	int i, n;
 	char line[1024];
 	ips_t *ips;
 	_ip_entry _e;
@@ -145,17 +151,22 @@ ips_t * open_ips(char *filename){
 	// init avl for key
 	avl_init(&keys, avl_strcmp, false, NULL);
 
+	n = sizeof(alias) / sizeof(*alias);
+	for(i = 0; i < n; i++){
+		get_key(ips, &keys, alias[i], i+1);
+	}
+
 	for (; fgets(line, sizeof(line), fp);) {
 		if(ips->e_len == MAX_CSV_LINE){
 			D("MAX_CSV_LINE(%d) not enough\n", MAX_CSV_LINE);
 			goto err_alloc_tree;
 		}
 		e = &ips->e[ips->e_len];
-		num = sscanf(line, "%u,%u,%[^,],%[^,],%[^,],%[^,],%[^,],%[^,],%[^,\n]", 
+		n = sscanf(line, "%u,%u,%[^,],%[^,],%[^,],%[^,],%[^,],%[^,],%[^,\n]", 
 				&_e.min, &_e.max, _e.min_addr, _e.max_addr, 
 				_e.country, _e.province, _e.city, _e.village, _e.isp);
-		if(num < 9 ){
-			D("SKIP[%d] %s\n",num, line);
+		if(n < 9 ){
+			D("SKIP[%d] %s\n", n, line);
 			continue;
 		}
 		ips->e_len++;
@@ -164,11 +175,11 @@ ips_t * open_ips(char *filename){
 		e->min = _e.min;
 		e->max = _e.max;
 #endif
-		e->country  = get_key(ips, &keys, _e.country);
-		e->province = get_key(ips, &keys, _e.province);
-		e->city     = get_key(ips, &keys, _e.city);
-		e->village  = get_key(ips, &keys, _e.village);
-		e->isp      = get_key(ips, &keys, _e.isp);
+		e->country  = get_key(ips, &keys, _e.country, 0);
+		e->province = get_key(ips, &keys, _e.province, 0);
+		e->city     = get_key(ips, &keys, _e.city, 0);
+		e->village  = get_key(ips, &keys, _e.village, 0);
+		e->isp      = get_key(ips, &keys, _e.isp, 0);
 		set_range(ips->tree, _e.min, _e.max, (uintptr_t)e);
 	}
 

@@ -57,8 +57,9 @@ typedef struct ips_t{
 }ips_t;
 
 typedef struct key_node_t{
-	struct avl_node node;
-	char *key;
+	struct    avl_node node;
+	char      *key;
+	char      *alias;
 }key_node_t;
 
 char *u32toa(uint32_t u);
