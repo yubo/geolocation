@@ -21,6 +21,7 @@
 #define MAX_CSV_LINE 2774714 
 #define MAX_TEXT_SIZE  200000000
 #define ALL_ONES (~(uint32_t)0)
+#define GEO_F_ALIAS 1
 
 typedef struct _ip_entry{
 	uint32_t min;
@@ -66,7 +67,7 @@ char *u32toa(uint32_t u);
 char *_u32toa(uint32_t u);
 char *__u32toa(uint32_t u);
 void dump_ips(ips_t *ips);
-ips_t * open_ips(char *filename);
+ips_t * open_ips(char *filename, uint32_t flags);
 void clean_ips(ips_t *ips);
 void print_ip(ips_t *ips, char *ip);
 void dump_ips(ips_t *ips);
