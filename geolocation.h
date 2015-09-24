@@ -18,7 +18,7 @@
 	DPRINTF(format, ##__VA_ARGS__); \
 } while (0)
 
-#define MAX_CSV_LINE 2774714 
+#define MAX_CSV_LINE 3000000
 #define MAX_TEXT_SIZE  200000000
 #define ALL_ONES (~(uint32_t)0)
 #define GEO_F_ALIAS 1
@@ -52,9 +52,9 @@ typedef struct ip_entry{
 typedef struct ips_t{
 	int e_len;
 	int t_len;
+	radix_tree_t *tree;
 	char  t[MAX_TEXT_SIZE];
 	ip_entry e[MAX_CSV_LINE];
-	radix_tree_t *tree;
 }ips_t;
 
 typedef struct key_node_t{

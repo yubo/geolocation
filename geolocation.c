@@ -99,12 +99,18 @@ static uintptr_t get_key(ips_t *ips, struct avl_tree *tree, char *key, char *ali
 
 		n->key = ips->t + ips->t_len;
 		n->node.key = n->key;
-		ips->t_len += sprintf(ips->t + ips->t_len, "%s", key) + 1;
+		ips->t_len += snprintf(ips->t + ips->t_len, MAX_TEXT_SIZE - ips->t_len, "%s", key) + 1;
 		if(alias){
 			n->alias = ips->t + ips->t_len;
 			ips->t_len += sprintf(ips->t + ips->t_len, "%s", alias) + 1;
 		}else{
 			n->alias = NULL;
+		}
+
+		if(ips->t_len >= MAX_TEXT_SIZE){
+			fprintf(stderr, "ips->t_len >= %d\n", MAX_TEXT_SIZE);
+			free(n);
+			return 0;
 		}
 
 		if(avl_insert(tree, &n->node)){
